@@ -16,10 +16,10 @@ const minimapCtx = minimapCanvas.getContext('2d');
 const WORLD_WIDTH = 7200;
 const WORLD_HEIGHT = 7200;
 
-// 고정 스폰 포인트
+// 고정 스폰 포인트 (건물 충돌 없는 안전한 광장 좌표)
 const FIXED_SPAWNS = {
-  START_SAFEHOUSE: { x: 1200, y: 1200, name: '신림동 비밀 은신처 골목' },
-  POLICE_PRECINCT: { x: 3600, y: 3600, name: '강남경찰서 정문' },
+  START_SAFEHOUSE: { x: 1200, y: 1480, name: '신림동 은신처 앞 광장' },
+  POLICE_PRECINCT: { x: 3870, y: 4050, name: '강남경찰서 정문 광장' },
   CHOP_SHOP: { x: 6200, y: 1100, w: 320, h: 260, name: '외곽 폐차장 장물아비 컨테이너' }
 };
 
@@ -463,16 +463,34 @@ class Player {
     this.speed = Math.max(-maxSpeed * 0.5, Math.min(maxSpeed, this.speed));
     this.speed *= friction;
 
-    const nextX = this.x + Math.cos(this.angle) * this.speed;
-    const nextY = this.y + Math.sin(this.angle) * this.speed;
+    // Anti-stuck resolution before moving
+    resolveBuildingOverlap(this);
 
-    if (!checkBuildingCollision(nextX, nextY, this.radius)) {
-      this.x = nextX;
-      this.y = nextY;
+    const moveX = Math.cos(this.angle) * this.speed;
+    const moveY = Math.sin(this.angle) * this.speed;
+
+    // Sliding collision check
+    if (!checkBuildingCollision(this.x + moveX, this.y + moveY, this.radius)) {
+      this.x += moveX;
+      this.y += moveY;
     } else {
-      this.speed *= -0.3;
-      window.soundEngine.playCrash();
+      // Try X slide
+      if (!checkBuildingCollision(this.x + moveX, this.y, this.radius)) {
+        this.x += moveX;
+        this.speed *= 0.85;
+      }
+      // Try Y slide
+      else if (!checkBuildingCollision(this.x, this.y + moveY, this.radius)) {
+        this.y += moveY;
+        this.speed *= 0.85;
+      } else {
+        this.speed *= -0.25;
+        window.soundEngine.playCrash();
+      }
     }
+
+    // Safety: ensure player is never inside any wall
+    resolveBuildingOverlap(this);
 
     this.x = Math.max(40, Math.min(WORLD_WIDTH - 40, this.x));
     this.y = Math.max(40, Math.min(WORLD_HEIGHT - 40, this.y));
@@ -989,8 +1007,8 @@ function initMap() {
   state.bikes = [];
   state.pedestrians = [];
 
-  // Rack 1: 신림동 은신처 앞 (따릉이 & 하이브리드)
-  spawnBikeRack(1380, 1260, 5, ['DDAREUNGI', 'SAMCHULY']);
+  // Rack 1: 신림동 은신처 앞 광장 (따릉이 & 하이브리드)
+  spawnBikeRack(1260, 1480, 5, ['DDAREUNGI', 'SAMCHULY']);
 
   // Rack 2: 성수동 픽시샵 앞 (엔진11 트릭 픽시!)
   spawnBikeRack(2600, 1150, 4, ['FIXIE', 'FIXIE', 'SAMCHULY']);
@@ -998,8 +1016,8 @@ function initMap() {
   // Rack 3: 배달대행지 앞 (배민 전기자전거!)
   spawnBikeRack(1500, 1950, 4, ['EBIKE', 'EBIKE', 'SAMCHULY']);
 
-  // Rack 4: 강남경찰서 앞 거치대 (간 큰 도둑 전용!)
-  spawnBikeRack(3420, 3650, 3, ['DDAREUNGI', 'SAMCHULY']);
+  // Rack 4: 강남경찰서 앞 광장 거치대 (간 큰 도둑 전용!)
+  spawnBikeRack(3870, 4100, 3, ['DDAREUNGI', 'SAMCHULY']);
 
   // Rack 5: 청담 럭셔리 부촌 (기함급 에스웍스 타막!)
   spawnBikeRack(5000, 3350, 3, ['SWORKS', 'SWORKS', 'FIXIE']);
@@ -1088,6 +1106,28 @@ function checkBuildingCollision(x, y, r) {
     }
   }
   return false;
+}
+
+// Anti-Stuck Ejection: Ejects player to the nearest outside edge if ever intersecting a wall
+function resolveBuildingOverlap(p) {
+  if (!p) return;
+  for (const b of state.buildings) {
+    if (b.type === 'park') continue;
+    if (p.x + p.radius > b.x && p.x - p.radius < b.x + b.w && 
+        p.y + p.radius > b.y && p.y - p.radius < b.y + b.h) {
+      
+      const leftDist = Math.abs(p.x - b.x);
+      const rightDist = Math.abs(p.x - (b.x + b.w));
+      const topDist = Math.abs(p.y - b.y);
+      const bottomDist = Math.abs(p.y - (b.y + b.h));
+
+      const minDist = Math.min(leftDist, rightDist, topDist, bottomDist);
+      if (minDist === leftDist) p.x = b.x - p.radius - 8;
+      else if (minDist === rightDist) p.x = b.x + b.w + p.radius + 8;
+      else if (minDist === topDist) p.y = b.y - p.radius - 8;
+      else p.y = b.y + b.h + p.radius + 8;
+    }
+  }
 }
 
 // Wanted Level Management
