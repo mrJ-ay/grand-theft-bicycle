@@ -32,8 +32,8 @@ const BIKE_TYPES = {
     accentColor: '#ffffff',
     basePrice: 25000,
     lockTime: 1.5,
-    maxSpeed: 4.8,
-    accel: 0.13,
+    maxSpeed: 5.5,
+    accel: 0.22,
     handling: 0.055,
     heat: 1,
     hasDeliveryBox: false
@@ -45,8 +45,8 @@ const BIKE_TYPES = {
     accentColor: '#b0bec5',
     basePrice: 120000,
     lockTime: 2.8,
-    maxSpeed: 5.8,
-    accel: 0.15,
+    maxSpeed: 6.8,
+    accel: 0.26,
     handling: 0.06,
     heat: 1,
     hasDeliveryBox: false
@@ -58,8 +58,8 @@ const BIKE_TYPES = {
     accentColor: '#00e5ff',
     basePrice: 450000,
     lockTime: 4.2,
-    maxSpeed: 7.8,
-    accel: 0.24,
+    maxSpeed: 8.8,
+    accel: 0.35,
     handling: 0.075,
     heat: 2,
     hasDeliveryBox: false
@@ -71,8 +71,8 @@ const BIKE_TYPES = {
     accentColor: '#212121',
     basePrice: 850000,
     lockTime: 5.0,
-    maxSpeed: 7.4,
-    accel: 0.30,
+    maxSpeed: 8.5,
+    accel: 0.40,
     handling: 0.05,
     heat: 2,
     hasDeliveryBox: true
@@ -84,8 +84,8 @@ const BIKE_TYPES = {
     accentColor: '#ffd700',
     basePrice: 4200000,
     lockTime: 7.2,
-    maxSpeed: 10.2,
-    accel: 0.28,
+    maxSpeed: 11.5,
+    accel: 0.46,
     handling: 0.07,
     heat: 3,
     hasDeliveryBox: false
@@ -802,7 +802,7 @@ class Police {
       isCar: this.isCar
     };
     this.radius = 11;
-    this.speed = 4.4;
+    this.speed = 2.4;
     showBanner('🚨 경찰관 하차!', '경찰관이 차에서 뛰어내려 곤봉을 들고 전력 질주합니다! "거기 서라!"');
     window.soundEngine.playBell();
   }
@@ -824,12 +824,20 @@ class Police {
 
     if (state.wantedLevel > 0) {
       const inAlley = isInAlley(state.player.x, state.player.y);
+      const playerOnBike = !!state.player.currentBike;
 
       // 경찰 하차 조건:
-      // 1) 플레이어와 거리가 150px 이내로 가까워졌을 때
-      // 2) 플레이어가 순찰차가 들어갈 수 없는 좁은 골목길로 도주했을 때
-      if (!this.onFoot && (distToPlayer < 150 || (this.isCar && inAlley))) {
-        this.dismountVehicle();
+      // 1) 순찰차인데 플레이어가 좁은 골목길(차량 진입 불가 구역)로 도망쳤을 때
+      // 2) 플레이어가 자전거에서 내려 맨몸으로 도주 중이고 경찰과 가까울 때 (distToPlayer < 75)
+      // 3) 순찰차가 충돌 등으로 거의 멈췄고 플레이어가 바로 코앞일 때 (distToPlayer < 45 && this.speed < 1.5)
+      // * 도로를 자전거 타고 달리는 플레이어에게는 차에서 내리지 않고 순찰차로 추격합니다!
+      if (!this.onFoot) {
+        const shouldDismount = (this.isCar && inAlley) ||
+          (!playerOnBike && distToPlayer < 75) ||
+          (this.isCar && distToPlayer < 45 && this.speed < 1.5);
+        if (shouldDismount) {
+          this.dismountVehicle();
+        }
       }
 
       const targetAngle = Math.atan2(state.player.y - this.y, state.player.x - this.x);
@@ -838,12 +846,13 @@ class Police {
       while (diff > Math.PI) diff -= Math.PI * 2;
 
       if (this.onFoot) {
-        // 도보 질주 모드: 좁은 골목길도 자유자재로 뛰어가며 곤봉을 휘두름!
+        // 도보 질주 모드: 장비 착용 경찰관의 현실적인 달리기 속도 (2.3~2.7).
+        // 자전거(5.5~11.5)로는 당연히 여유롭게 따돌릴 수 있고, 맨몸 플레이어(2.4)와는 팽팽한 추격전!
         this.angle += Math.max(-0.16, Math.min(0.16, diff));
-        this.speed = 4.4 + state.wantedLevel * 0.15;
+        this.speed = 2.3 + state.wantedLevel * 0.08;
 
         // 플레이어 포획 / 자전거 강제 끌어내림
-        if (distToPlayer < 26) {
+        if (distToPlayer < 24) {
           if (state.player.currentBike) {
             triggerDismount('경찰관이 덮쳐 자전거에서 강제로 끌어내렸습니다! "꼼짝 마!"');
             window.soundEngine.playCrash();
