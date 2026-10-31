@@ -1393,8 +1393,45 @@ async function checkChopShopTransaction() {
   }
 }
 
-// Theft Interaction Logic
+// Bicycle Mount / Dismount Debounce & Voluntary Dismount Logic
+let mountCooldown = 0;
+
+function playerDismount() {
+  if (!state.player || !state.player.currentBike) return;
+  const bike = state.player.currentBike;
+
+  // Safe step off to the side so player doesn't spawn on top of the bike
+  const sideAngle = state.player.angle + Math.PI / 2;
+  const targetX = state.player.x + Math.cos(sideAngle) * 28;
+  const targetY = state.player.y + Math.sin(sideAngle) * 28;
+
+  bike.x = state.player.x;
+  bike.y = state.player.y;
+  bike.angle = state.player.angle;
+  bike.isLocked = false;
+
+  if (!checkBuildingCollision(targetX, targetY, state.player.radius)) {
+    state.player.x = targetX;
+    state.player.y = targetY;
+  }
+
+  state.player.currentBike = null;
+  state.player.speed = 0;
+  mountCooldown = 40; // 40프레임 동안 즉시 재탑승 방지 (안정적인 하차 보장)
+
+  keys['KeyE'] = false;
+  keys['KeyF'] = false;
+
+  showBanner('자전거 하차 완료', '자전거에서 내려 뚜벅이 모드가 되었습니다. (재탑승: [E] 또는 [F])');
+  window.soundEngine.playBell();
+}
+
+// Theft & Mount/Dismount Interaction Logic
 function updateTheftLogic() {
+  if (mountCooldown > 0) {
+    mountCooldown--;
+  }
+
   const promptEl = document.getElementById('action-prompt');
   const gaugeWrap = document.getElementById('stealing-gauge-wrap');
   const gaugeBar = document.getElementById('stealing-bar');
@@ -1402,15 +1439,20 @@ function updateTheftLogic() {
 
   if (state.player.currentBike) {
     promptEl.classList.remove('hidden');
-    promptEl.querySelector('.key-badge').innerText = 'E';
-    promptEl.querySelector('.action-text').innerText = '자전거에서 내리기';
+    promptEl.querySelector('.key-badge').innerText = 'E / F';
+    promptEl.querySelector('.action-text').innerText = '자전거에서 내리기 (하차)';
     gaugeWrap.classList.add('hidden');
     state.isCutting = false;
+
+    // 키가 눌려있으면 하차 처리
+    if ((keys['KeyE'] || keys['KeyF']) && mountCooldown <= 0) {
+      playerDismount();
+    }
     return;
   }
 
   let nearest = null;
-  let minDist = 40;
+  let minDist = 48;
 
   for (const b of state.bikes) {
     const d = Math.hypot(b.x - state.player.x, b.y - state.player.y);
@@ -1424,12 +1466,12 @@ function updateTheftLogic() {
 
   if (nearest) {
     promptEl.classList.remove('hidden');
-    promptEl.querySelector('.key-badge').innerText = 'E';
+    promptEl.querySelector('.key-badge').innerText = 'E / F';
 
     if (nearest.isLocked) {
       promptEl.querySelector('.action-text').innerText = `자물쇠 절단하기 [${nearest.stats.name}]`;
 
-      if (keys['KeyE']) {
+      if (keys['KeyE'] || keys['KeyF']) {
         state.isCutting = true;
         gaugeWrap.classList.remove('hidden');
         bikeInfoEl.innerText = `${nearest.stats.name} (장물가: ₩${nearest.stats.basePrice.toLocaleString()})`;
@@ -1451,6 +1493,7 @@ function updateTheftLogic() {
           state.isCutting = false;
           state.cutProgress = 0;
           gaugeWrap.classList.add('hidden');
+          mountCooldown = 40;
 
           window.soundEngine.playBell();
           showBanner('자물쇠 절단 완료!', `[${nearest.stats.name}] 탈취 성공! 5분 버티기 챌린지가 시작됩니다!`);
@@ -1468,10 +1511,13 @@ function updateTheftLogic() {
       promptEl.querySelector('.action-text').innerText = `탑승하기 [${nearest.stats.name}]`;
       gaugeWrap.classList.add('hidden');
 
-      if (keys['KeyE']) {
+      if ((keys['KeyE'] || keys['KeyF']) && mountCooldown <= 0) {
         state.player.currentBike = nearest;
         window.soundEngine.playBell();
+        showBanner('자전거 탑승 완료', `[${nearest.stats.name}] 주행을 시작합니다! (하차: [E] 또는 [F])`);
         keys['KeyE'] = false;
+        keys['KeyF'] = false;
+        mountCooldown = 40;
       }
     }
   } else {
@@ -1751,14 +1797,9 @@ window.addEventListener('keydown', e => {
     }
   }
 
-  if (e.code === 'KeyE') {
-    if (state.player && state.player.currentBike && !state.isCutting) {
-      const b = state.player.currentBike;
-      b.x = state.player.x;
-      b.y = state.player.y;
-      b.isLocked = false;
-      state.player.currentBike = null;
-      showBanner('자전거 하차', '뚜벅이 모드로 전환되었습니다.');
+  if (e.code === 'KeyE' || e.code === 'KeyF') {
+    if (state.player && state.player.currentBike && !state.isCutting && mountCooldown <= 0) {
+      playerDismount();
     }
   }
 
