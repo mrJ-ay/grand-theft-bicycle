@@ -777,28 +777,59 @@ class Pedestrian {
 }
 
 // Police Cruiser & Bicycle Police
+// Police Cruiser, Bicycle Police, and On-Foot Dismount Chase
 class Police {
   constructor(x, y, isCar = true) {
     this.x = x;
     this.y = y;
     this.isCar = isCar;
+    this.originalIsCar = isCar;
     this.angle = Math.random() * Math.PI * 2;
     this.speed = 0;
     this.radius = isCar ? 24 : 14;
     this.patrolTimer = 0;
+    this.onFoot = false;
+    this.parkedVehicle = null;
+  }
+
+  dismountVehicle() {
+    if (this.onFoot) return;
+    this.onFoot = true;
+    this.parkedVehicle = {
+      x: this.x,
+      y: this.y,
+      angle: this.angle,
+      isCar: this.isCar
+    };
+    this.radius = 11;
+    this.speed = 4.4;
+    showBanner('🚨 경찰관 하차!', '경찰관이 차에서 뛰어내려 곤봉을 들고 전력 질주합니다! "거기 서라!"');
+    window.soundEngine.playBell();
+  }
+
+  remountVehicle() {
+    if (!this.onFoot) return;
+    this.onFoot = false;
+    this.isCar = this.originalIsCar;
+    this.radius = this.isCar ? 24 : 14;
+    if (this.parkedVehicle) {
+      this.x = this.parkedVehicle.x;
+      this.y = this.parkedVehicle.y;
+      this.parkedVehicle = null;
+    }
   }
 
   update() {
     const distToPlayer = Math.hypot(state.player.x - this.x, state.player.y - this.y);
 
     if (state.wantedLevel > 0) {
-      // 좁은 골목길에 플레이어가 들어갔을 때 순찰차 진입 방지 (자전거 전용 탈출로!)
       const inAlley = isInAlley(state.player.x, state.player.y);
-      if (this.isCar && inAlley) {
-        // 골목길 입구에서 서성거리며 클랙슨 울림
-        this.speed = Math.max(0, this.speed - 0.2);
-        this.angle += 0.03;
-        return;
+
+      // 경찰 하차 조건:
+      // 1) 플레이어와 거리가 150px 이내로 가까워졌을 때
+      // 2) 플레이어가 순찰차가 들어갈 수 없는 좁은 골목길로 도주했을 때
+      if (!this.onFoot && (distToPlayer < 150 || (this.isCar && inAlley))) {
+        this.dismountVehicle();
       }
 
       const targetAngle = Math.atan2(state.player.y - this.y, state.player.x - this.x);
@@ -806,21 +837,40 @@ class Police {
       while (diff < -Math.PI) diff += Math.PI * 2;
       while (diff > Math.PI) diff -= Math.PI * 2;
 
-      this.angle += Math.max(-0.065, Math.min(0.065, diff));
+      if (this.onFoot) {
+        // 도보 질주 모드: 좁은 골목길도 자유자재로 뛰어가며 곤봉을 휘두름!
+        this.angle += Math.max(-0.16, Math.min(0.16, diff));
+        this.speed = 4.4 + state.wantedLevel * 0.15;
 
-      const maxSpeed = this.isCar ? 6.5 + state.wantedLevel * 0.45 : 5.4;
-      this.speed = Math.min(maxSpeed, this.speed + 0.2);
+        // 플레이어 포획 / 자전거 강제 끌어내림
+        if (distToPlayer < 26) {
+          if (state.player.currentBike) {
+            triggerDismount('경찰관이 덮쳐 자전거에서 강제로 끌어내렸습니다! "꼼짝 마!"');
+            window.soundEngine.playCrash();
+          } else {
+            triggerBusted();
+          }
+        }
+      } else {
+        // 차량/자전거 주행 모드
+        this.angle += Math.max(-0.065, Math.min(0.065, diff));
+        const maxSpeed = this.isCar ? 6.5 + state.wantedLevel * 0.45 : 5.4;
+        this.speed = Math.min(maxSpeed, this.speed + 0.2);
 
-      // Ram or Bust
-      if (distToPlayer < (this.isCar ? 34 : 20)) {
-        if (state.player.currentBike) {
-          triggerDismount('경찰에 들이받혀 자전거에서 튕겨져 나갔습니다!');
-          window.soundEngine.playCrash();
-        } else {
-          triggerBusted();
+        if (distToPlayer < (this.isCar ? 34 : 20)) {
+          if (state.player.currentBike) {
+            triggerDismount('순찰차에 들이받혀 자전거에서 튕겨져 나갔습니다!');
+            window.soundEngine.playCrash();
+          } else {
+            triggerBusted();
+          }
         }
       }
     } else {
+      if (this.onFoot) {
+        this.remountVehicle();
+      }
+
       this.patrolTimer--;
       if (this.patrolTimer <= 0) {
         this.angle += (Math.random() - 0.5) * 1.0;
@@ -847,66 +897,128 @@ class Police {
   }
 
   draw() {
+    // 1) 하차한 경우 길가에 주차된 순찰차 먼저 렌더링
+    if (this.parkedVehicle) {
+      ctx.save();
+      ctx.translate(this.parkedVehicle.x, this.parkedVehicle.y);
+      ctx.rotate(this.parkedVehicle.angle);
+      if (this.parkedVehicle.isCar) {
+        this.drawCarBody();
+      } else {
+        this.drawBikeBody();
+      }
+      ctx.restore();
+    }
+
+    // 2) 현재 경찰 본체 렌더링
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
-    if (this.isCar) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(-26, -14, 56, 28);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(-24, -13, 50, 26);
-
+    if (this.onFoot) {
+      // 도보 질주 경찰관 (남색 제복, 경찰모, 곤봉)
       ctx.fillStyle = '#0d47a1';
-      ctx.fillRect(-10, -13, 20, 4);
-      ctx.fillRect(-10, 9, 20, 4);
-
-      ctx.fillStyle = '#37474f';
-      ctx.fillRect(8, -10, 6, 20);
-      ctx.fillRect(-14, -10, 5, 20);
-
-      ctx.fillStyle = '#eceff1';
-      ctx.fillRect(-9, -9, 17, 18);
-
-      const flash = Math.floor(Date.now() / 120) % 2 === 0;
-      ctx.fillStyle = flash ? '#ff1744' : '#2979ff';
-      ctx.fillRect(-3, -7, 6, 6);
-      ctx.fillStyle = flash ? '#2979ff' : '#ff1744';
-      ctx.fillRect(-3, 1, 6, 6);
-
-      if (state.wantedLevel > 0) {
-        ctx.fillStyle = 'rgba(255, 255, 180, 0.3)';
-        ctx.beginPath();
-        ctx.moveTo(26, -10);
-        ctx.lineTo(95, -30);
-        ctx.lineTo(95, 30);
-        ctx.lineTo(26, 10);
-        ctx.fill();
-      }
-    } else {
-      ctx.fillStyle = '#0d47a1';
-      ctx.fillRect(-16, -2, 8, 4);
-      ctx.fillRect(10, -2, 8, 4);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(-12, 0);
-      ctx.lineTo(12, 0);
-      ctx.stroke();
+      ctx.ellipse(0, 0, 7, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 머리 & 모자
+      ctx.fillStyle = '#ffcc80';
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      ctx.fill();
 
       ctx.fillStyle = '#1a237e';
       ctx.beginPath();
-      ctx.ellipse(-2, 0, 6, 8, 0, 0, Math.PI * 2);
+      ctx.arc(1, 0, 5.5, -Math.PI / 2, Math.PI / 2);
       ctx.fill();
 
-      ctx.fillStyle = '#fff';
+      // 곤봉
+      ctx.fillStyle = '#212121';
+      ctx.fillRect(4, 7, 11, 3);
+
+      // 팔 스윙
+      const swing = Math.sin(Date.now() * 0.02) * 5;
+      ctx.fillStyle = '#ffcc80';
       ctx.beginPath();
-      ctx.arc(-2, 0, 5, 0, Math.PI * 2);
+      ctx.arc(swing, -11, 2.5, 0, Math.PI * 2);
+      ctx.arc(-swing, 11, 2.5, 0, Math.PI * 2);
       ctx.fill();
+
+      // 머리 위 텍스트 뱃지
+      ctx.restore();
+      ctx.save();
+      ctx.translate(this.x, this.y - 18);
+      ctx.fillStyle = '#ff1744';
+      ctx.font = 'bold 12px "Noto Sans KR", sans-serif';
+      ctx.fillText('🚨서라!', -14, 0);
+      ctx.restore();
+      return;
+
+    } else if (this.isCar) {
+      this.drawCarBody();
+    } else {
+      this.drawBikeBody();
     }
 
     ctx.restore();
+  }
+
+  drawCarBody() {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(-26, -14, 56, 28);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(-24, -13, 50, 26);
+
+    ctx.fillStyle = '#0d47a1';
+    ctx.fillRect(-10, -13, 20, 4);
+    ctx.fillRect(-10, 9, 20, 4);
+
+    ctx.fillStyle = '#37474f';
+    ctx.fillRect(8, -10, 6, 20);
+    ctx.fillRect(-14, -10, 5, 20);
+
+    ctx.fillStyle = '#eceff1';
+    ctx.fillRect(-9, -9, 17, 18);
+
+    const flash = Math.floor(Date.now() / 120) % 2 === 0;
+    ctx.fillStyle = flash ? '#ff1744' : '#2979ff';
+    ctx.fillRect(-3, -7, 6, 6);
+    ctx.fillStyle = flash ? '#2979ff' : '#ff1744';
+    ctx.fillRect(-3, 1, 6, 6);
+
+    if (state.wantedLevel > 0) {
+      ctx.fillStyle = 'rgba(255, 255, 180, 0.3)';
+      ctx.beginPath();
+      ctx.moveTo(26, -10);
+      ctx.lineTo(95, -30);
+      ctx.lineTo(95, 30);
+      ctx.lineTo(26, 10);
+      ctx.fill();
+    }
+  }
+
+  drawBikeBody() {
+    ctx.fillStyle = '#0d47a1';
+    ctx.fillRect(-16, -2, 8, 4);
+    ctx.fillRect(10, -2, 8, 4);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-12, 0);
+    ctx.lineTo(12, 0);
+    ctx.stroke();
+
+    ctx.fillStyle = '#1a237e';
+    ctx.beginPath();
+    ctx.ellipse(-2, 0, 6, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(-2, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
