@@ -162,20 +162,101 @@ const state = {
 const keys = {};
 
 // =========================================================
-// 1. ONEID / Vegas Slots 연동 및 잔고 동기화
+// 1. ONEID / Vegas Slots OAuth PKCE 인증 및 잔고 동기화
 // =========================================================
-async function initAuthAndBalance() {
-  // 1) localStorage에서 기존 ONEID 토큰 확인 (vegas-slots ns_auth 와 호환)
-  let savedToken = null;
-  try {
-    const raw = localStorage.getItem('ns_auth');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.token) savedToken = parsed.token;
-    }
-  } catch (e) {}
+const PKCE_KEY = 'gtb_pkce';
+const AUTH_KEY = 'gtb_token';
+const redirectUri = () => window.location.origin + '/';
+const b64url = bytes => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-  // 게스트 토큰 자동 생성
+async function startOneidLogin() {
+  localStorage.removeItem(AUTH_KEY);
+
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = b64url(new Uint8Array(digest));
+  const stateVal = b64url(crypto.getRandomValues(new Uint8Array(18)));
+
+  sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state: stateVal }));
+
+  const oneid = 'https://oneid-icvq.onrender.com';
+  const loginUrl = `${oneid}/login.html?` + new URLSearchParams({
+    client_id: 'grandtheftbicycle',
+    redirect_uri: redirectUri(),
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state: stateVal
+  });
+
+  window.location.assign(loginUrl);
+}
+
+async function handleOauthCallback() {
+  const p = new URLSearchParams(window.location.search);
+  const code = p.get('code');
+  if (!code) {
+    const directToken = p.get('token');
+    if (directToken) {
+      state.authToken = directToken;
+      localStorage.setItem(AUTH_KEY, directToken);
+      localStorage.setItem('ns_auth', JSON.stringify({ token: directToken }));
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    return;
+  }
+
+  const saved = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null');
+  sessionStorage.removeItem(PKCE_KEY);
+  window.history.replaceState(null, '', window.location.pathname);
+
+  if (!saved || saved.state !== p.get('state')) {
+    console.warn('OAuth State validation failed');
+    return;
+  }
+
+  try {
+    const res = await fetch('https://oneid-icvq.onrender.com/api/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: 'grandtheftbicycle',
+        redirect_uri: redirectUri(),
+        code: code,
+        code_verifier: saved.verifier
+      })
+    });
+
+    const d = await res.json().catch(() => ({}));
+    if (res.ok && d.access_token) {
+      state.authToken = d.access_token;
+      localStorage.setItem(AUTH_KEY, d.access_token);
+      localStorage.setItem('ns_auth', JSON.stringify({ token: d.access_token }));
+      showBanner('🎉 ONEID 로그인 성공!', '베가스 슬롯 자금 및 계정이 실시간 연동되었습니다!');
+    } else {
+      console.error('ONEID token exchange failed:', d);
+    }
+  } catch (err) {
+    console.error('ONEID callback error:', err);
+  }
+}
+
+async function initAuthAndBalance() {
+  // 1) OAuth 콜백 처리 (?code=...)
+  await handleOauthCallback();
+
+  // 2) 토큰 로드 (gtb_token 또는 ns_auth)
+  let savedToken = localStorage.getItem(AUTH_KEY);
+  if (!savedToken) {
+    try {
+      const raw = localStorage.getItem('ns_auth');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.token) savedToken = parsed.token;
+      }
+    } catch (e) {}
+  }
+
+  // 3) 없으면 게스트 토큰 자동 생성
   if (!savedToken) {
     let guestId = localStorage.getItem('gtb_guest_id');
     if (!guestId) {
@@ -187,7 +268,7 @@ async function initAuthAndBalance() {
 
   state.authToken = savedToken;
 
-  // 서버에서 내 상태 & 베가스 슬롯 잔고 조회
+  // 4) 서버에서 내 상태 & 베가스 슬롯 잔고 조회
   try {
     const res = await fetch('/api/player', {
       headers: { Authorization: `Bearer ${state.authToken}` }
@@ -199,6 +280,12 @@ async function initAuthAndBalance() {
       state.cash = Number(data.balance) || 0;
       document.getElementById('user-display-name').innerText = state.userName;
       document.getElementById('cash-value').innerText = state.cash.toLocaleString();
+
+      const isOneidUser = !state.authToken.startsWith('guest_');
+      const authBtn = document.getElementById('btn-oneid-login');
+      if (authBtn) {
+        authBtn.innerText = isOneidUser ? `👤 ${state.userName} (연동됨)` : 'ONEID 로그인 (내 슬롯 계정 연동)';
+      }
     }
   } catch (e) {
     console.warn('서버 잔고 동기화 대기 중 (오프라인 모드):', e.message);
@@ -1677,11 +1764,18 @@ window.addEventListener('keydown', e => {
 });
 
 // ONEID SSO 로그인 버튼
-document.getElementById('btn-oneid-login').addEventListener('click', () => {
-  const oneidUrl = 'https://oneid-icvq.onrender.com';
-  const clientId = 'grandtheftbicycle';
-  const redirect = encodeURIComponent(window.location.origin + '/');
-  window.location.href = `${oneidUrl}/login.html?client_id=${clientId}&redirect_uri=${redirect}`;
+document.getElementById('btn-oneid-login').addEventListener('click', startOneidLogin);
+
+// 유저 뱃지 클릭 시 계정 전환 / 로그아웃 지원
+document.getElementById('account-badge').addEventListener('click', () => {
+  const isOneidUser = state.authToken && !state.authToken.startsWith('guest_');
+  const msg = isOneidUser 
+    ? `현재 [${state.userName}] 계정으로 연동 중입니다.\n로그아웃하고 다른 ONEID 계정으로 로그인하시겠습니까?`
+    : 'ONEID로 로그인하여 베가스 슬롯의 실제 잔고와 연동하시겠습니까?';
+
+  if (confirm(msg)) {
+    startOneidLogin();
+  }
 });
 
 function startGame() {
