@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: grand-theft-bicycle
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: PORT
+        value: "5506"
+      - key: DATABASE_URL
+        sync: false
+      - key: ONEID_URL
+        sync: false
+      - key: ONEID_CLIENT_ID
+        value: grandtheftbicycle
+      - key: SLOTS_URL
+        sync: false

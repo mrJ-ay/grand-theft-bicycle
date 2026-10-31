@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GRAND THEFT BICYCLE - 엄복동의 도시</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Noto+Sans+KR:wght@700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Scanline & CRT Effect Overlay -->
+    <div class="crt-overlay"></div>
+    <div class="vignette"></div>
+
+    <!-- HUD Overlay -->
+    <div id="hud">
+      <!-- Top Left: Vegas Slots Balance & Status -->
+      <div class="hud-top-left">
+        <div class="account-badge" id="account-badge">
+          <span class="user-name" id="user-display-name">익명의자전거도둑</span>
+          <a id="btn-slots-link" class="slots-pill" href="https://vegas-slots-2izy.onrender.com" target="_blank" title="베가스 슬롯 바로가기">🎰 베가스 슬롯 이동 ↗</a>
+        </div>
+        <div class="cash-display">
+          <span class="currency">₩</span>
+          <span id="cash-value">0</span>
+          <span class="cash-label">SLOTS FUNDS</span>
+        </div>
+        <div class="vehicle-info">
+          <span class="label">STATUS:</span>
+          <span id="vehicle-name" class="val">도보 (신림동 은신처)</span>
+        </div>
+        <div class="tool-info">
+          <span class="label">TOOL:</span>
+          <span id="tool-name" class="val">다이소 펜치 (1단계)</span>
+        </div>
+      </div>
+
+      <!-- Top Center: 5-Minute Survival Challenge Banner (백만원 보상!) -->
+      <div id="survival-challenge-container">
+        <div class="challenge-title">
+          <span class="challenge-fire">🔥</span>
+          <span>자전거 5분 사수 챌린지</span>
+          <span class="challenge-reward">보상: 슬롯 자금 +₩1,000,000!</span>
+        </div>
+        <div class="challenge-timer-wrap">
+          <span class="challenge-label">남은 시간:</span>
+          <span id="challenge-timer" class="timer-digits">05:00</span>
+          <div class="challenge-bar-bg">
+            <div id="challenge-bar-fill" class="challenge-bar-fill"></div>
+          </div>
+        </div>
+        <div id="challenge-status-text" class="challenge-status">자전거를 훔쳐 타고 5분간 버티세요!</div>
+      </div>
+
+      <!-- Top Right: Wanted Level & Stamina -->
+      <div class="hud-top-right">
+        <div class="wanted-level">
+          <span class="wanted-title">WANTED</span>
+          <div class="stars" id="wanted-stars">
+            <span class="star">★</span>
+            <span class="star">★</span>
+            <span class="star">★</span>
+            <span class="star">★</span>
+            <span class="star">★</span>
+          </div>
+        </div>
+        <div class="stamina-container">
+          <div class="stamina-label">STAMINA</div>
+          <div class="stamina-bar-bg">
+            <div id="stamina-bar" class="stamina-bar-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Prompt (e.g. [E] 자물쇠 자르기 / [F] 탑승) -->
+      <div id="action-prompt" class="hidden">
+        <div class="key-badge">E</div>
+        <div class="action-text">자전거 자물쇠 따기</div>
+      </div>
+
+      <!-- Stealing Progress Ring / Bar -->
+      <div id="stealing-gauge-wrap" class="hidden">
+        <div class="stealing-title">절단 중... (E키 유지!)</div>
+        <div class="stealing-bar-bg">
+          <div id="stealing-bar" class="stealing-bar-fill"></div>
+        </div>
+        <div id="stealing-bike-info">삼천리 하이브리드 (₩80,000)</div>
+      </div>
+
+      <!-- Floating notification message (GTA Mission Style) -->
+      <div id="alert-banner" class="hidden">
+        <div id="alert-title">장물 납품 완료!</div>
+        <div id="alert-desc">+₩250,000 획득 (베가스 슬롯 실시간 입금)</div>
+      </div>
+
+      <!-- Challenge Completed Big Banner -->
+      <div id="mission-passed-banner" class="hidden">
+        <div class="mission-passed-title">MISSION PASSED!</div>
+        <div class="mission-passed-sub">자전거 5분 사수 대성공!</div>
+        <div class="mission-passed-reward">+ ₩ 1,000,000</div>
+        <div class="mission-passed-note">베가스 슬롯 카지노 자금에 즉시 누적되었습니다!</div>
+      </div>
+
+      <!-- Mini-Map (Radar) -->
+      <div id="minimap-wrap">
+        <canvas id="minimapCanvas" width="180" height="180"></canvas>
+        <div class="minimap-border"></div>
+        <div class="minimap-tag">SEOUL RADAR</div>
+      </div>
+
+      <!-- District Location Tag (Bottom-Right) -->
+      <div id="district-banner">
+        <div id="district-name">📍 신림동 은신처 골목</div>
+        <div id="gps-coords">X: 1200 | Y: 1200</div>
+      </div>
+
+      <!-- Controls Guide -->
+      <div id="controls-help">
+        <span><b>WASD / 방향키</b>: 이동</span> | 
+        <span><b>Space</b>: 전력 페달링</span> | 
+        <span><b>E</b>: 훔치기/하차</span> | 
+        <span><b>Q</b>: 따릉이 벨</span> | 
+        <span><b>M</b>: 장물아비 암시장</span>
+      </div>
+    </div>
+
+    <!-- Chop Shop (장물아비 암시장) Modal -->
+    <div id="shop-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>🏴‍☠️ 은밀한 장물아비 컨테이너 (CHOP SHOP)</h2>
+          <button id="btn-close-shop" class="close-btn">X</button>
+        </div>
+        <p class="modal-sub">"물건 좋은 거 털어왔냐? 번 돈으로 장비 좀 업그레이드해. 슬롯 연동 잔고로 바로 결제된다."</p>
+
+        <div class="shop-grid">
+          <!-- Item 1 -->
+          <div class="shop-item" id="item-tool">
+            <div class="item-icon">✂️</div>
+            <div class="item-details">
+              <div class="item-name" id="shop-tool-name">공업용 볼트 커터 (2단계)</div>
+              <div class="item-desc" id="shop-tool-desc">절단 속도 2배 빨라짐!</div>
+            </div>
+            <button class="buy-btn" id="btn-buy-tool">₩ 200,000</button>
+          </div>
+
+          <!-- Item 2 -->
+          <div class="shop-item" id="item-legs">
+            <div class="item-icon">🍗</div>
+            <div class="item-details">
+              <div class="item-name" id="shop-legs-name">경륜선수 허벅지 (Lv.1)</div>
+              <div class="item-desc">최대 스태미나 +30% & 회복속도 상승</div>
+            </div>
+            <button class="buy-btn" id="btn-buy-legs">₩ 150,000</button>
+          </div>
+
+          <!-- Item 3 -->
+          <div class="shop-item" id="item-spray">
+            <div class="item-icon">🎨</div>
+            <div class="item-details">
+              <div class="item-name">위장 도색 스프레이 (1회용)</div>
+              <div class="item-desc">현재 타고 있는 자전거를 도색해 즉시 수배도 해제</div>
+            </div>
+            <button class="buy-btn" id="btn-buy-spray">₩ 100,000</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <span class="my-cash">베가스 슬롯 잔고: <b id="shop-my-cash">₩ 0</b></span>
+          <span class="hint">[M] 키를 누르면 닫힙니다.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BUSTED / GAME OVER SCREEN -->
+    <div id="busted-screen" class="hidden">
+      <div class="busted-box">
+        <h1 class="busted-text">BUSTED</h1>
+        <h2 class="busted-sub">자전거 도둑질 현장 검거!</h2>
+        <p id="busted-stats">압수된 자전거 & 슬롯 자금에서 보석금 납부 완료...</p>
+        <button id="btn-restart" class="restart-btn">보석금 내고 강남경찰서 정문으로 석방 (재스폰)</button>
+      </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+      <div class="start-box">
+        <div class="start-logo">
+          <h1>GRAND THEFT</h1>
+          <h1 class="accent">BICYCLE</h1>
+          <p class="tagline">~ 대한민국 엄복동의 후예들 ~</p>
+        </div>
+        <div class="bike-icons">🚲 🚲 🚲</div>
+
+        <div class="features-box">
+          <div class="feat-item">🎰 <b>베가스 슬롯 실시간 자금 연동</b> (훔친 자전거 매각 대금 즉시 입금)</div>
+          <div class="feat-item">⏱️ <b>5분 자전거 사수 챌린지</b>: 자전거를 타고 5분 버티면 슬롯 자금 <b>+₩1,000,000</b>!</div>
+          <div class="feat-item">🗺️ <b>대형 광역 맵 (7200×7200)</b>: 좁은 골목길(순찰차 진입 불가), 부촌, 한강 자전거도로</div>
+          <div class="feat-item">📍 <b>고정 스폰 지점</b>: 신림동 은신처 시작 / 체포 시 강남경찰서 정문 석방</div>
+        </div>
+
+        <div class="start-actions">
+          <button id="btn-start" class="start-btn">엔터 / 클릭하여 플레이 시작!</button>
+          <button id="btn-oneid-login" class="oneid-btn">ONEID 로그인 (내 슬롯 계정 연동)</button>
+        </div>
+        <div class="sound-notice">🔊 레트로 사운드 및 경찰 사이렌이 포함되어 있습니다.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="audio.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "name": "grand-theft-bicycle",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GTA 1 Style Bicycle Theft & Fencing Simulator (엄복동의 도시)",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --watch --env-file-if-exists=.env server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.23.1"
+  }
+}
